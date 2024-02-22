@@ -101,7 +101,6 @@ class BigramLanguageModel(nn.Module):
         # logits is essentially the scores for the next token in the sequence
         # we are predicting what comes next based on a single identity of the current token i.e. tokens are not dependent on each other
 
-
         loss = None
         if targets is not None:
             # lets also calculate the loss function, which in this case will be cross entropy
@@ -151,3 +150,33 @@ batch = generated[0].tolist()
 decoded = decode_string(batch, int_to_str)
 
 print(decoded)
+
+# optimizers are aglorithms that update weights and biases of the neurons in the network
+# they aim to minimize the loss function (error between prediction and output)
+# they do this by calculating some king of gradient of the loss function, with respect to parameters
+# the gradient will of course indicate the diretion of steepest ascent, so we move the parameters in the opposite direction
+# normally controlled by the learning rate - stochastic gradient descent is a basic example of this
+optimizer = torch.optim.Adam(m.parameters(), lr=1e-3)
+
+batch_size = 32
+
+for steps in range(15000):
+    # get a sample batch
+    xb, yb = get_batch('train')
+
+    logits, loss = m(xb, yb)
+
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+print(f"Loss: {loss.item()}")
+
+input_indexes = torch.zeros((1, 1), dtype=torch.long)
+generated = m.generate(input_indexes, 500)
+batch = generated[0].tolist()
+decoded = decode_string(batch, int_to_str)
+
+print(decoded)
+# hey! for a model that can only see a single token, its better than random!
+# see bigram.py for clean version from karpathy
