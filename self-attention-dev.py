@@ -68,3 +68,55 @@ print(f"\nweights: {weights}")
 
 x_bow3 = weights @ logits
 print(f"x_bow3: {x_bow3[0]}")
+
+
+from torch import nn
+
+# version 4 attention
+#I want to look at all tokens in the past but in data dependent manner
+#  all tokens will emit two vectors, a key and a query, they query answers "what am i looking for"
+# and key answers "what do I contain"
+# such that when I complete the dot product between the last query and all the keys, i get my weights matrix
+
+
+torch.manual_seed(1337)
+B, T, C = 4, 8, 32 # batch size, sequence length, vocab size
+x = torch.randn(B, T, C)
+
+# we implement a single head of self attention
+head_size = 16
+key = nn.Linear(C, head_size, bias=False)
+query = nn.Linear(C, head_size, bias=False)
+value = nn.Linear(C, head_size, bias=False)
+
+k = key(x) # (B, T, head_size)
+q = query(x) # (B, T, head_size)
+
+weights = q @ k.transpose(-2, -1) * head_size**-0.5 # (B, T, head_size) @ (B, head_size, T) -> (B, T, T) such that for each row of B, we get T x T affinities
+
+tril = torch.tril(torch.ones(T, T))
+weights = weights.masked_fill(tril == 0, float('-inf'))
+weights = F.softmax(weights, dim=1)
+
+v = value(x) # (B, T, head_size)
+out = weights @ v # (B, T, T) @ (B, T, head_size) -> (B, T, head_size)
+
+print(f"weights: {weights[0]}")
+print(f"out: {out[0]}")
+
+# its worth noting, attention is just a communication mechanism, can be seen as a graph where by tokens are pointed to from themselves 
+# and previous tokens
+# furthermore,there's no indication of "space", "time" or "position", it simply acts over a set of vectors, hence why in our model
+#  we must add positional embeddings
+# batches are completely separate, and never interact with each other
+
+# in other use cases such as sentiment analysis, we can delete the tril function, because we want all tokens to
+# talk to one another to get analysis of the entire time
+# this is called an "encoder" block wheraes with tril we have a "decoder" block e.g. an autoregressive model
+
+# self-attention describes the example where k, q, v all come from x, but cross attention is where k. v come from a separate source of nodes
+
+# finally from the self-attention paper, they imlpement a "scaled" attention whereby weights are divided by the square root of the head size
+# this makes it so when input Q, K are unit variance, wei will also be of unit variance too, otherwise would simply softmax to the highest value
+# this means variance would be in the order of head size, such that variance increases with head size
+# i.e weights goes from q @ kT to q @ kT / sqrt(head_size)
