@@ -6,8 +6,8 @@ from torch.nn import functional as F
 batch_size = 32 # how many independent sequences will we process in parallel?
 block_size = 8 # what is the maximum context length for predictions?
 max_iters = 30000
-eval_interval = 300
-learning_rate = 1e-2
+eval_interval = 500
+learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embed = 32
@@ -59,6 +59,29 @@ def estimate_loss():
     model.train()
     return out
 
+class Head(nn.Module):
+    """Single head of self-attention"""
+
+    def __init__(self, head_size):
+        super().__init__()
+        self.key = nn.Linear(n_embed, head_size, bias=False)
+        self.query = nn.Linear(n_embed, head_size, bias=False)
+        self.value = nn.Linear(n_embed, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+
+    def forward(self, x):
+        B, T, C = x.shape
+        k = self.key(x)
+        q = self.query(x)
+
+        # compute attention scores (weights / affinities)
+        weights = q @ k.transpose(-2, -1) * (C ** -0.5) # B T C @ B C T -> B T T
+        weights = weights.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # mask out the upper triangular part
+        weights = F.softmax(weights, dim=-1) # normalize the rows to sum to 1
+        v = self.value(x)
+        out = weights @ v # B T T @ B T C -> B T C
+        return out
+
 # super simple bigram model
 class BigramLanguageModel(nn.Module):
 
@@ -67,6 +90,7 @@ class BigramLanguageModel(nn.Module):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed)
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
+        self.sa_head = Head(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size) #language model head
 
     def forward(self, idx, targets=None):
@@ -77,6 +101,7 @@ class BigramLanguageModel(nn.Module):
         pos_embed = self.position_embedding_table(torch.arange(T, device=device)) # (T, n_embed)
         # x holds not just the token identity but also the position at which it occurs
         x = tok_embed + pos_embed # (B,T, n_embed)
+        x = self.sa_head(x) # one head of self attention
         logits = self.lm_head(tok_embed) # (B,T, vocab_size)
 
         if targets is None:
@@ -92,8 +117,10 @@ class BigramLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         # idx is (B, T) array of indices in the current context
         for _ in range(max_new_tokens):
+            # crop idx to the last blck_size tokens
+            idx_crop = idx[:, -block_size:]
             # get the predictions
-            logits, loss = self(idx)
+            logits, loss = self(idx_crop)
             # focus only on the last time step
             logits = logits[:, -1, :] # becomes (B, C)
             # apply softmax to get probabilities
