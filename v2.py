@@ -3,17 +3,20 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 # hyperparameters
-batch_size = 32 # how many independent sequences will we process in parallel?
-block_size = 8 # what is the maximum context length for predictions?
+batch_size = 64 # how many independent sequences will we process in parallel?
+block_size = 256 # what is the maximum context length for predictions?
 max_iters = 5000
 eval_interval = 500
-learning_rate = 1e-3
+learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embed = 32
-n_layer = 3 # number of transformer blocks
-n_head = 4
+n_embed = 384
+n_layer = 6 # number of transformer blocks
+n_head = 6
 
+# https://pytorch.org/docs/stable/generated/torch.nn.Dropout.html, 
+# randomly shuts off some neurons, training without them, reduces overfitting
+dropout = 0.2
 # ------------
 
 torch.manual_seed(1337)
@@ -71,6 +74,7 @@ class Head(nn.Module):
         self.query = nn.Linear(n_embed, head_size, bias=False)
         self.value = nn.Linear(n_embed, head_size, bias=False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -81,6 +85,7 @@ class Head(nn.Module):
         weights = q @ k.transpose(-2, -1) * (C ** -0.5) # B T C @ B C T -> B T T
         weights = weights.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # mask out the upper triangular part
         weights = F.softmax(weights, dim=-1) # normalize the rows to sum to 1
+        weights = self.dropout(weights)
         v = self.value(x)
         out = weights @ v # B T T @ B T C -> B T C
         return out
@@ -92,10 +97,11 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(num_heads * head_size, n_embed)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
-        return self.proj(out) # project back into "residual pathway"
+        return self.dropout(self.proj(out)) # project back into "residual pathway"
     
 class FeedForward(nn.Module):
     """Simple linear layer folowed by non-linearity"""
@@ -106,7 +112,8 @@ class FeedForward(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(n_embed, 4 * n_embed),
             nn.ReLU(),
-            proj
+            proj,
+            nn.Dropout(dropout)
         )
 
     def forward(self, x):
