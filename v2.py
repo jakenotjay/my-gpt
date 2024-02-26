@@ -5,7 +5,7 @@ from torch.nn import functional as F
 # hyperparameters
 batch_size = 32 # how many independent sequences will we process in parallel?
 block_size = 8 # what is the maximum context length for predictions?
-max_iters = 15000
+max_iters = 5000
 eval_interval = 500
 learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -117,11 +117,16 @@ class Block(nn.Module):
         head_size = n_embed // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedForward(n_embed)
+        # normalizes across the rows such that they average to zero with unit SD
+        # operates per token, has trainable parameters beta and gamma
+        self.ln1 = nn.LayerNorm(n_embed)
+        self.ln2 = nn.LayerNorm(n_embed)
 
     def forward(self, x):
         # adding residual connections
-        x = x + self.sa(x)
-        x = x + self.ffwd(x)
+        # layer norm before self attention and feed forward, unlike original transformer
+        x = x + self.sa(self.ln1(x))
+        x = x + self.ffwd(self.ln2(x))
         return x
 
 class BigramLanguageModel(nn.Module):#
@@ -133,7 +138,10 @@ class BigramLanguageModel(nn.Module):#
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
         self.sa_heads = MultiHeadAttention(num_heads=4, head_size=n_embed // 4) # i.e. 4 heads of 8 dimensional self-attention
         n_head = 4
-        self.blocks = nn.Sequential(*[Block(n_embed, n_head) for _ in range(3)])
+        self.blocks = nn.Sequential(
+            *[Block(n_embed, n_head) for _ in range(3)],
+            nn.LayerNorm(n_embed)
+            )
 
         self.ffwd = FeedForward(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size) #language model head
@@ -185,7 +193,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 for iter in range(max_iters):
 
     # every once in a while evaluate the loss on train and val sets
-    if iter % eval_interval == 0:
+    if iter % eval_interval == 0 or iter == max_iters - 1:
         losses = estimate_loss()
         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
