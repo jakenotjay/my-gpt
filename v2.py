@@ -5,7 +5,7 @@ from torch.nn import functional as F
 # hyperparameters
 batch_size = 32 # how many independent sequences will we process in parallel?
 block_size = 8 # what is the maximum context length for predictions?
-max_iters = 5000
+max_iters = 15000
 eval_interval = 500
 learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -99,9 +99,9 @@ class FeedForward(nn.Module):
 
     def __init__(self, n_embed):
         super().__init__()
-        proj = nn.Linear(n_embed, n_embed)
+        proj = nn.Linear(4 * n_embed, n_embed)
         self.net = nn.Sequential(
-            nn.Linear(n_embed, n_embed),
+            nn.Linear(n_embed, 4 * n_embed),
             nn.ReLU(),
             proj
         )
