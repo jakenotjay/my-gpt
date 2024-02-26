@@ -11,6 +11,9 @@ learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embed = 32
+n_layer = 3 # number of transformer blocks
+n_head = 4
+
 # ------------
 
 torch.manual_seed(1337)
@@ -137,13 +140,9 @@ class BigramLanguageModel(nn.Module):#
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed)
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
         self.sa_heads = MultiHeadAttention(num_heads=4, head_size=n_embed // 4) # i.e. 4 heads of 8 dimensional self-attention
-        n_head = 4
-        self.blocks = nn.Sequential(
-            *[Block(n_embed, n_head) for _ in range(3)],
-            nn.LayerNorm(n_embed)
-            )
+        self.blocks = nn.Sequential(*[Block(n_embed, n_head) for _ in range(3)])
+        self.ln = nn.LayerNorm(n_embed)
 
-        self.ffwd = FeedForward(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size) #language model head
 
     def forward(self, idx, targets=None):
@@ -155,6 +154,7 @@ class BigramLanguageModel(nn.Module):#
         # x holds not just the token identity but also the position at which it occurs
         x = tok_embed + pos_embed # (B,T, n_embed)
         x = self.blocks(x) # (B,T, n_embed)
+        x = self.ln(x) # (B,T, n_embed
         logits = self.lm_head(x) # (B,T, vocab_size)
 
         if targets is None:
