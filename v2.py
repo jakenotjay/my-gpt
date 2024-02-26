@@ -88,18 +88,22 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(num_heads * head_size, n_embed)
 
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim=-1)
+        out = torch.cat([h(x) for h in self.heads], dim=-1)
+        return self.proj(out) # project back into "residual pathway"
     
 class FeedForward(nn.Module):
     """Simple linear layer folowed by non-linearity"""
 
     def __init__(self, n_embed):
         super().__init__()
+        proj = nn.Linear(n_embed, n_embed)
         self.net = nn.Sequential(
             nn.Linear(n_embed, n_embed),
             nn.ReLU(),
+            proj
         )
 
     def forward(self, x):
@@ -115,11 +119,12 @@ class Block(nn.Module):
         self.ffwd = FeedForward(n_embed)
 
     def forward(self, x):
-        x = self.sa(x)
-        x = self.ffwd(x)
+        # adding residual connections
+        x = x + self.sa(x)
+        x = x + self.ffwd(x)
         return x
 
-class BigramLanguageModel(nn.Module):
+class BigramLanguageModel(nn.Module):#
 
     def __init__(self):
         super().__init__()
